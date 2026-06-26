@@ -420,17 +420,7 @@ export default function App() {
                 />
                 {errors.mobile && <span className="err">{errors.mobile}</span>}
               </div>
-              <div className="field">
-                <label>Property State</label>
-                <select value={data.propertyState} onChange={(e) => set('propertyState', e.target.value)}>
-                  <option value="">Select state</option>
-                  {['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'].map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-                {errors.propertyState && <span className="err">{errors.propertyState}</span>}
-              </div>
-              <div className="field">
+<div className="field">
                 <label>Birth Date</label>
                 <input
                   type="date"
