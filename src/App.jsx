@@ -253,20 +253,6 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // Load Calendly widget when thank-you step is reached
-  useEffect(() => {
-    if (step !== 9) return
-    if (document.getElementById('calendly-script')) {
-      if (window.Calendly) window.Calendly.initInlineWidgets()
-      return
-    }
-    const s = document.createElement('script')
-    s.id = 'calendly-script'
-    s.src = 'https://assets.calendly.com/assets/external/widget.js'
-    s.async = true
-    document.head.appendChild(s)
-  }, [step])
-
   // scroll to top on step change
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -300,6 +286,8 @@ export default function App() {
                   value={data.loanAmount}
                   style={{ background: sliderBg }}
                   onChange={(e) => set('loanAmount', Number(e.target.value))}
+                  onMouseUp={next}
+                  onTouchEnd={next}
                 />
                 <div className="slider-ends">
                   <span>{fmt(SLIDER_MIN)}</span>
@@ -489,14 +477,9 @@ export default function App() {
 
         {/* ---------------- THANK YOU ---------------- */}
         {step === 9 && (
-          <div className="thanks">
-            <h2>Book in your free loan strategy call</h2>
-            <p>One of our home loan specialists will walk you through your best options.</p>
-            <div
-              className="calendly-inline-widget"
-              data-url="https://calendly.com/zippyfinancial/45min"
-              style={{ minWidth: '320px', height: '1050px' }}
-            />
+          <div className="thanks" style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+            <h2>Thank you!</h2>
+            <p>We will be in contact with you shortly.</p>
           </div>
         )}
 
