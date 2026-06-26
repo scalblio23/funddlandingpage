@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
    CONFIG — replace these two values
    ============================================================ */
 // Your Make.com webhook for this funnel (routes the lead to your Google Sheet)
-const WEBHOOK_URL = 'https://hook.eu1.make.com/zrg0g98jjwnf0b3zcsjpgydv3xbsr6gg'
+const WEBHOOK_URL = 'https://hooks.zapier.com/hooks/catch/16453711/42zy0lj/'
 
 // Optional: Google Maps JS API key to enable address autocomplete.
 // Leave blank to fall back to a plain text input (build still works).
@@ -233,7 +233,7 @@ export default function App() {
       if (window.fbq) window.fbq('track', 'Lead', { brand: BRAND })
     } catch (e) {}
 
-    // Send to Make.com webhook
+    // Send to Zapier webhook
     try {
       await fetch(WEBHOOK_URL, {
         method: 'POST',
