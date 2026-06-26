@@ -57,7 +57,7 @@ const MONTHS = [
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: CURRENT_YEAR - 1989 }, (_, i) => String(CURRENT_YEAR - i))
 
-const TOTAL_STEPS = 7 // quiz steps (excludes landing + thank-you)
+const TOTAL_STEPS = 8 // quiz steps (excludes landing + thank-you)
 
 const fmt = (n) => '$' + Number(n).toLocaleString('en-AU')
 
@@ -69,6 +69,7 @@ const emptyData = {
   employment: '',
   income: '',
   creditScore: '',
+  hasDefaults: '',
   fullName: '',
   email: '',
   mobile: '',
@@ -120,7 +121,7 @@ function SelectStep({ title, help, options, value, onSelect, cols }) {
    App
    ============================================================ */
 export default function App() {
-  const [step, setStep] = useState(0) // 0 = landing, 1..7 = quiz, 8 = thanks
+  const [step, setStep] = useState(0) // 0 = landing, 1..8 = quiz, 9 = thanks
   const [data, setData] = useState(emptyData)
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
@@ -132,14 +133,14 @@ export default function App() {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
       if (saved && saved.data) {
         setData({ ...emptyData, ...saved.data })
-        if (typeof saved.step === 'number' && saved.step < 8) setStep(saved.step)
+        if (typeof saved.step === 'number' && saved.step < 9) setStep(saved.step)
       }
     } catch (e) {}
   }, [])
 
   // Persist progress (don't persist the thank-you state)
   useEffect(() => {
-    if (step < 8) {
+    if (step < 9) {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ step, data }))
       } catch (e) {}
@@ -148,18 +149,18 @@ export default function App() {
 
   const set = (key, val) => setData((d) => ({ ...d, [key]: val }))
 
-  const next = () => setStep((s) => Math.min(s + 1, 8))
+  const next = () => setStep((s) => Math.min(s + 1, 9))
   const back = () => setStep((s) => Math.max(s - 1, 0))
 
   // Auto-advance for single-select questions
   const pick = (key, val) => {
     set(key, val)
-    setTimeout(() => setStep((s) => Math.min(s + 1, 8)), 220)
+    setTimeout(() => setStep((s) => Math.min(s + 1, 9)), 220)
   }
 
   // Google Places autocomplete (graceful fallback if no key)
   useEffect(() => {
-    if (step !== 7 || !GOOGLE_MAPS_KEY) return
+    if (step !== 8 || !GOOGLE_MAPS_KEY) return
     const attach = () => {
       if (!addressRef.current || !window.google?.maps?.places) return
       const ac = new window.google.maps.places.Autocomplete(addressRef.current, {
@@ -218,6 +219,7 @@ export default function App() {
       employment: data.employment,
       income: data.income,
       creditScore: data.creditScore,
+      hasDefaults: data.hasDefaults,
       fullName: data.fullName.trim(),
       email: data.email.trim(),
       mobile: data.mobile.trim(),
@@ -247,13 +249,13 @@ export default function App() {
     try {
       localStorage.removeItem(STORAGE_KEY)
     } catch (e) {}
-    setStep(8)
+    setStep(9)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   // Load Calendly widget when thank-you step is reached
   useEffect(() => {
-    if (step !== 8) return
+    if (step !== 9) return
     if (document.getElementById('calendly-script')) {
       if (window.Calendly) window.Calendly.initInlineWidgets()
       return
@@ -313,7 +315,7 @@ export default function App() {
         )}
 
         {/* ---------------- QUIZ ---------------- */}
-        {step >= 1 && step <= 7 && <Progress step={step} />}
+        {step >= 1 && step <= 8 && <Progress step={step} />}
 
         {step === 1 && (
           <SelectStep
@@ -343,6 +345,30 @@ export default function App() {
         )}
 
         {step === 4 && (
+          <div className="card">
+            <h2 className="q-title">Do you have any defaults on your credit file?</h2>
+            <div className="options">
+              <button
+                type="button"
+                className={'option' + (data.hasDefaults === 'No' ? ' selected' : '')}
+                onClick={() => pick('hasDefaults', 'No')}
+              >
+                <span>No</span>
+                <span className="check" />
+              </button>
+              <button
+                type="button"
+                className={'option' + (data.hasDefaults === 'Yes' ? ' selected' : '')}
+                onClick={() => { set('hasDefaults', 'Yes'); setStep(10) }}
+              >
+                <span>Yes</span>
+                <span className="check" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 5 && (
           <SelectStep
             title="What's your employment status?"
             options={EMPLOYMENT_OPTS}
@@ -351,7 +377,7 @@ export default function App() {
           />
         )}
 
-        {step === 5 && (
+        {step === 6 && (
           <SelectStep
             title="What's your annual household income?"
             options={INCOME_OPTS}
@@ -361,7 +387,7 @@ export default function App() {
           />
         )}
 
-        {step === 6 && (
+        {step === 7 && (
           <SelectStep
             title="What's your estimated credit score?"
             options={CREDIT_OPTS}
@@ -370,7 +396,7 @@ export default function App() {
           />
         )}
 
-        {step === 7 && (
+        {step === 8 && (
           <div className="card">
             <h2 className="q-title">Where should we send your offers?</h2>
             <p className="q-help">Your details are kept private and secure</p>
@@ -444,14 +470,25 @@ export default function App() {
           </div>
         )}
 
-        {step >= 1 && step <= 7 && (
+        {step >= 1 && step <= 8 && (
           <button className="back" onClick={back}>
             ← Back
           </button>
         )}
 
+        {/* ---------------- DISQUALIFIED ---------------- */}
+        {step === 10 && (
+          <div className="card" style={{ textAlign: 'center' }}>
+            <h2 className="q-title">Sorry, we can't help you at this time</h2>
+            <p className="q-help">
+              It looks like you have a default on your credit file. We recommend reaching out to a
+              credit repair advisor who can help you work through this before applying for a home loan.
+            </p>
+          </div>
+        )}
+
         {/* ---------------- THANK YOU ---------------- */}
-        {step === 8 && (
+        {step === 9 && (
           <div className="thanks">
             <h2>Book in your free loan strategy call</h2>
             <p>One of our home loan specialists will walk you through your best options.</p>
