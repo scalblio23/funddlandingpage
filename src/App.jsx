@@ -223,7 +223,6 @@ export default function App() {
       fullName: data.fullName.trim(),
       email: data.email.trim(),
       mobile: data.mobile.trim(),
-      propertyState: data.propertyState,
       birthDate: data.birthDate,
       address: data.address.trim(),
       pageUrl: window.location.href,
