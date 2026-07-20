@@ -31,6 +31,7 @@ const PURPOSE_OPTS = [
   'Other',
 ]
 const TIMING_OPTS = ['ASAP', 'Within 30 Days', '1-3 Months', '3-6 Months', 'Just Researching']
+const FINANCE_NOW_OPTS = ['Yes, asap.', 'Next month', 'Next 6 months', 'Next year']
 const PRIORITY_OPTS = ['Lowest Rate', 'Flexible Repayments', 'Offset Account', 'Fast Approval', 'Lower Monthly Repayments']
 const EMPLOYMENT_OPTS = [
   'Full-Time',
@@ -57,7 +58,7 @@ const MONTHS = [
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: CURRENT_YEAR - 1989 }, (_, i) => String(CURRENT_YEAR - i))
 
-const TOTAL_STEPS = 8 // quiz steps (excludes landing + thank-you)
+const TOTAL_STEPS = 9 // quiz steps (excludes landing + thank-you)
 
 const fmt = (n) => '$' + Number(n).toLocaleString('en-AU')
 
@@ -68,6 +69,7 @@ const emptyData = {
   priority: '',
   employment: '',
   income: '',
+  financeNow: '',
   creditScore: '',
   hasDefaults: '',
   fullName: '',
@@ -211,6 +213,7 @@ export default function App() {
 
     const payload = {
       brand: BRAND,
+      financeNow: data.financeNow,
       loanAmount: data.loanAmount,
       loanAmountFormatted: fmt(data.loanAmount),
       purpose: data.purpose,
@@ -301,7 +304,7 @@ export default function App() {
         )}
 
         {/* ---------------- QUIZ ---------------- */}
-        {step >= 1 && step <= 8 && <Progress step={step} />}
+        {step >= 1 && step <= 9 && <Progress step={step} />}
 
         {step === 1 && (
           <SelectStep
@@ -314,6 +317,15 @@ export default function App() {
 
         {step === 2 && (
           <SelectStep
+            title="Are you needing help with finance NOW?"
+            options={FINANCE_NOW_OPTS}
+            value={data.financeNow}
+            onSelect={(v) => pick('financeNow', v)}
+          />
+        )}
+
+        {step === 3 && (
+          <SelectStep
             title="When are you looking to get a home loan?"
             options={TIMING_OPTS}
             value={data.timing}
@@ -321,7 +333,7 @@ export default function App() {
           />
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <SelectStep
             title="What's most important for you?"
             options={PRIORITY_OPTS}
@@ -330,7 +342,7 @@ export default function App() {
           />
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <div className="card">
             <h2 className="q-title">Do you have any defaults on your credit file?</h2>
             <div className="options">
@@ -354,7 +366,7 @@ export default function App() {
           </div>
         )}
 
-        {step === 5 && (
+        {step === 6 && (
           <SelectStep
             title="What's your employment status?"
             options={EMPLOYMENT_OPTS}
@@ -363,7 +375,7 @@ export default function App() {
           />
         )}
 
-        {step === 6 && (
+        {step === 7 && (
           <SelectStep
             title="What's your annual household income?"
             options={INCOME_OPTS}
@@ -373,7 +385,7 @@ export default function App() {
           />
         )}
 
-        {step === 7 && (
+        {step === 8 && (
           <SelectStep
             title="What's your estimated credit score?"
             options={CREDIT_OPTS}
@@ -382,7 +394,7 @@ export default function App() {
           />
         )}
 
-        {step === 8 && (
+        {step === 9 && (
           <div className="card">
             <h2 className="q-title">Where should we send your offers?</h2>
             <p className="q-help">Your details are kept private and secure</p>
@@ -446,7 +458,7 @@ export default function App() {
           </div>
         )}
 
-        {step >= 1 && step <= 8 && (
+        {step >= 1 && step <= 9 && (
           <button className="back" onClick={back}>
             ← Back
           </button>
