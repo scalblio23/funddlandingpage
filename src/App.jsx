@@ -193,9 +193,10 @@ export default function App() {
     const e = {}
     if (!data.fullName.trim()) e.fullName = 'Required'
     if (!/^\S+@\S+\.\S+$/.test(data.email)) e.email = 'Enter a valid email'
-    const digits = data.mobile.replace(/\D/g, '')
-    const auMobile = /^(04\d{8}|4\d{8})$/      // 04xx xxx xxx or 4xx xxx xxx (without leading 0)
-    const auLandline = /^0[2378]\d{8}$/          // 02/03/07/08 + 8 digits
+    // Normalise +61 country code to leading 0
+    const digits = data.mobile.replace(/\D/g, '').replace(/^610?/, '0')
+    const auMobile = /^04\d{8}$/
+    const auLandline = /^0[2378]\d{8}$/
     if (!auMobile.test(digits) && !auLandline.test(digits)) e.mobile = 'Enter a valid Australian phone number'
     setErrors(e)
     if (Object.keys(e).length > 0) {
