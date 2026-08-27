@@ -123,10 +123,11 @@ function SelectStep({ title, help, options, value, onSelect, cols }) {
    App
    ============================================================ */
 export default function App() {
-  const [step, setStep] = useState(0) // 0 = landing, 1..8 = quiz, 9 = thanks
+  const [step, setStep] = useState(0) // 0 = landing, 1..8 = quiz, 9 = contact details
   const [data, setData] = useState(emptyData)
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
   const addressRef = useRef(null)
 
   // Restore from localStorage
@@ -254,7 +255,7 @@ export default function App() {
     try {
       localStorage.removeItem(STORAGE_KEY)
     } catch (e) {}
-    setStep(9)
+    setSubmitted(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -308,7 +309,7 @@ export default function App() {
         )}
 
         {/* ---------------- QUIZ ---------------- */}
-        {step >= 1 && step <= 9 && <Progress step={step} />}
+        {step >= 1 && step <= 9 && !submitted && <Progress step={step} />}
 
         {step === 1 && (
           <SelectStep
@@ -398,7 +399,7 @@ export default function App() {
           />
         )}
 
-        {step === 9 && (
+        {step === 9 && !submitted && (
           <div className="card">
             <h2 className="q-title">Where should we send your offers?</h2>
             <p className="q-help">Your details are kept private and secure</p>
@@ -462,7 +463,7 @@ export default function App() {
           </div>
         )}
 
-        {step >= 1 && step <= 9 && (
+        {step >= 1 && step <= 9 && !submitted && (
           <button className="back" onClick={back}>
             ← Back
           </button>
@@ -480,7 +481,7 @@ export default function App() {
         )}
 
         {/* ---------------- THANK YOU ---------------- */}
-        {step === 9 && (
+        {submitted && (
           <div className="thanks" style={{ textAlign: 'center', padding: '2rem 1rem' }}>
             <h2>Thank you!</h2>
             <p>We will be in contact with you shortly.</p>
