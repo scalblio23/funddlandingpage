@@ -242,15 +242,29 @@ export default function App() {
       if (window.fbq) window.fbq('track', 'Lead', { brand: BRAND })
     } catch (e) {}
 
-    // Send to Zapier webhook
-    try {
-      await fetch(WEBHOOK_URL, {
+    // Send to Zapier webhook, and in parallel to our own backup endpoint
+    // (writes straight into a Google Sheet — doesn't depend on Zapier/Make
+    // being up or paid for). Each is independent: one failing doesn't stop
+    // the other, and neither blocks the thank-you screen.
+    const results = await Promise.allSettled([
+      fetch(WEBHOOK_URL, {
         method: 'POST',
         body: JSON.stringify(payload),
-      })
-    } catch (e) {
-      console.error('Webhook error:', e)
-    }
+      }),
+      fetch('/api/submit-lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    ])
+    results.forEach((r, i) => {
+      const label = i === 0 ? 'Zapier webhook' : 'Backup sheet'
+      if (r.status === 'rejected') {
+        console.error(`${label} error:`, r.reason)
+      } else if (!r.value.ok) {
+        console.error(`${label} error: HTTP ${r.value.status}`)
+      }
+    })
 
     try {
       localStorage.removeItem(STORAGE_KEY)
