@@ -10,7 +10,9 @@
 
 import { JWT } from 'google-auth-library'
 
-const SHEET_RANGE = 'Sheet1!A:A' // append after the last row of column A
+// No sheet/tab name prefix — the Sheets API falls back to the first visible
+// tab when one isn't specified, so renaming that tab doesn't break this.
+const SHEET_RANGE = 'A:A' // append after the last row of column A
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
