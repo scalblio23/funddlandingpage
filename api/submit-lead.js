@@ -14,6 +14,21 @@ import { JWT } from 'google-auth-library'
 // tab when one isn't specified, so renaming that tab doesn't break this.
 const SHEET_RANGE = 'A:A' // append after the last row of column A
 
+// Normalizes the handful of ways a pasted service-account private key
+// commonly gets mangled when it goes through an env var UI:
+//  - Vercel env vars can't store real newlines, so the key is usually
+//    pasted with literal "\n" sequences — turn them back into real ones.
+//  - Sometimes the whole value gets pasted still wrapped in the JSON
+//    file's surrounding double quotes — strip a single matching pair.
+//  - Trim stray leading/trailing whitespace from the paste.
+function normalizePrivateKey(raw) {
+  let key = raw.trim()
+  if (key.length >= 2 && key[0] === '"' && key[key.length - 1] === '"') {
+    key = key.slice(1, -1)
+  }
+  return key.replace(/\\n/g, '\n').trim()
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' })
@@ -32,9 +47,7 @@ export default async function handler(req, res) {
   try {
     const client = new JWT({
       email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      // Vercel env vars can't store real newlines, so the key is pasted
-      // with literal "\n" sequences — turn them back into real newlines.
-      key: GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      key: normalizePrivateKey(GOOGLE_PRIVATE_KEY),
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     })
     const { token } = await client.getAccessToken()
