@@ -100,3 +100,24 @@ fetch('https://secure.fundd.finchecker.com.au/api/lead', {
 ```
 `fields` is a flat object — its values get appended as one new row, in
 `Object.values()` order, after a leading timestamp column.
+
+### Optional: also forward to a webhook (e.g. a GHL workflow)
+
+- `LEAD_WEBHOOK_MAP` — a JSON string mapping a client key to an extra URL to
+  forward the lead to, server-to-server, e.g.
+  ```json
+  {"goal-finance":"https://services.leadconnectorhq.com/hooks/..."}
+  ```
+  A client with no entry here just skips this step — the Google Sheets
+  write is always the critical path and is unaffected either way.
+
+This is what a GoHighLevel **Inbound Webhook** workflow trigger URL goes
+here, for example — lets a lead also land as a real GHL Contact (with
+whatever tags/automations that workflow sets up), not just a spreadsheet
+row. It's sent server-side by `/api/lead` itself rather than as a second
+client-side `fetch()` from the landing page, specifically to avoid CORS —
+many webhook receivers aren't built to accept a browser-originated request
+and silently reject the preflight; a server-to-server call has no such
+issue. The JSON body sent is `{ client, submittedAt, ...fields }` (the same
+`fields` object the caller sent, spread flat) — map those keys to GHL
+contact fields / custom fields in the workflow.

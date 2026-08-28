@@ -15,6 +15,17 @@
 //   GOOGLE_PRIVATE_KEY            (shared with /api/submit-lead.js)
 //   LEAD_SHEET_MAP                JSON string mapping client key -> Sheet ID, e.g.
 //                                 {"goal-finance":"1yQ_d0tVO6_..."}
+//
+// Optional:
+//   LEAD_WEBHOOK_MAP              JSON string mapping client key -> an extra
+//                                 webhook URL to also forward the lead to
+//                                 (e.g. a GHL "Inbound Webhook" workflow
+//                                 trigger URL), e.g.
+//                                 {"goal-finance":"https://services.leadconnectorhq.com/hooks/..."}
+//                                 Sent server-to-server, so it's immune to
+//                                 the CORS issues a client-side fetch to a
+//                                 webhook endpoint would risk. A client with
+//                                 no entry here just skips this step.
 
 import { JWT } from 'google-auth-library'
 
@@ -49,7 +60,7 @@ export default async function handler(req, res) {
     return
   }
 
-  const { GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, LEAD_SHEET_MAP } = process.env
+  const { GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, LEAD_SHEET_MAP, LEAD_WEBHOOK_MAP } = process.env
   if (!GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_PRIVATE_KEY || !LEAD_SHEET_MAP) {
     console.error('lead: missing env vars (service account or sheet map)')
     res.status(500).json({ error: 'Server not configured' })
@@ -63,6 +74,17 @@ export default async function handler(req, res) {
     console.error('lead: LEAD_SHEET_MAP is not valid JSON', e)
     res.status(500).json({ error: 'Server not configured' })
     return
+  }
+
+  let webhookMap = {}
+  if (LEAD_WEBHOOK_MAP) {
+    try {
+      webhookMap = JSON.parse(LEAD_WEBHOOK_MAP)
+    } catch (e) {
+      // Non-fatal -- the sheet backup is the critical path. Just log it and
+      // skip the extra webhook forward for everyone until it's fixed.
+      console.error('lead: LEAD_WEBHOOK_MAP is not valid JSON', e)
+    }
   }
 
   const body = req.body || {}
@@ -110,6 +132,30 @@ export default async function handler(req, res) {
       console.error('lead: Sheets API error', sheetsRes.status, text)
       res.status(502).json({ error: 'Sheets append failed' })
       return
+    }
+
+    // Sheets is the critical path and has already succeeded at this point.
+    // The extra webhook forward (e.g. into a GHL workflow) is best-effort on
+    // top of that -- awaited so its own errors get logged, but never allowed
+    // to turn a successful sheet write into a failed response.
+    const webhookUrl = webhookMap[client]
+    if (webhookUrl) {
+      try {
+        const webhookRes = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client,
+            submittedAt: body.submittedAt || new Date().toISOString(),
+            ...fields,
+          }),
+        })
+        if (!webhookRes.ok) {
+          console.error('lead: webhook forward failed', client, webhookRes.status, await webhookRes.text())
+        }
+      } catch (webhookErr) {
+        console.error('lead: webhook forward error', client, webhookErr)
+      }
     }
 
     res.status(200).json({ ok: true })
