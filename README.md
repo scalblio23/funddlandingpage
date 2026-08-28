@@ -71,15 +71,22 @@ the Google service account credentials. `/api/lead` exists for those: it's a
 second, public, CORS-enabled endpoint on this same deployment that any site
 can call cross-origin.
 
-It reuses the same `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_PRIVATE_KEY`
-above, plus one more env var:
+It can forward each lead to up to two independent destinations per client,
+configured via two separate maps. A client needs at least one of the two;
+having both is fine, and — importantly — **the two run as fully independent
+operations, neither gated on the other.** A Google Cloud outage doesn't
+silence the webhook forward, and a broken webhook doesn't stop the Sheets
+write. That independence is the entire point of having more than one path.
 
-- `LEAD_SHEET_MAP` — a JSON string mapping a client key to a Sheet ID, e.g.
+- `LEAD_SHEET_MAP` — a JSON string mapping a client key to a Google Sheet
+  ID, e.g.
   ```json
   {"goal-finance":"1yQ_d0tVO6_aQtB1bGsUz8_JGgYormH2fXtaq0lv2oiU"}
   ```
-  Add a new `"key": "sheetId"` entry here for every new site that uses this
-  endpoint — no code change needed, just extend the map.
+  Requires `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_PRIVATE_KEY` (shared with
+  `/api/submit-lead.js` above) to be set. Add a new `"key": "sheetId"` entry
+  here for every new site that wants this destination — no code change
+  needed, just extend the map.
 
 **Callers never send a raw Sheet ID** — only a `client` key, which the
 server looks up in `LEAD_SHEET_MAP`. This is deliberate: since the endpoint
@@ -101,23 +108,26 @@ fetch('https://secure.fundd.finchecker.com.au/api/lead', {
 `fields` is a flat object — its values get appended as one new row, in
 `Object.values()` order, after a leading timestamp column.
 
-### Optional: also forward to a webhook (e.g. a GHL workflow)
+### Optional second destination: a webhook (e.g. a GHL workflow)
 
-- `LEAD_WEBHOOK_MAP` — a JSON string mapping a client key to an extra URL to
-  forward the lead to, server-to-server, e.g.
+- `LEAD_WEBHOOK_MAP` — a JSON string mapping a client key to a webhook URL
+  to also send the lead to, server-to-server, e.g.
   ```json
   {"goal-finance":"https://services.leadconnectorhq.com/hooks/..."}
   ```
-  A client with no entry here just skips this step — the Google Sheets
-  write is always the critical path and is unaffected either way.
 
-This is what a GoHighLevel **Inbound Webhook** workflow trigger URL goes
-here, for example — lets a lead also land as a real GHL Contact (with
-whatever tags/automations that workflow sets up), not just a spreadsheet
-row. It's sent server-side by `/api/lead` itself rather than as a second
-client-side `fetch()` from the landing page, specifically to avoid CORS —
-many webhook receivers aren't built to accept a browser-originated request
-and silently reject the preflight; a server-to-server call has no such
-issue. The JSON body sent is `{ client, submittedAt, ...fields }` (the same
-`fields` object the caller sent, spread flat) — map those keys to GHL
-contact fields / custom fields in the workflow.
+This is where a GoHighLevel **Inbound Webhook** workflow trigger URL goes,
+for example — lets a lead also land as a real GHL Contact (with whatever
+tags/automations that workflow sets up). It's sent server-side by
+`/api/lead` itself rather than as a second client-side `fetch()` from the
+landing page, specifically to avoid CORS — many webhook receivers aren't
+built to accept a browser-originated request and silently reject the
+preflight; a server-to-server call has no such issue. The JSON body sent
+is `{ client, submittedAt, ...fields }` (the same `fields` object the
+caller sent, spread flat) — map those keys to GHL contact fields / custom
+fields in the workflow.
+
+The response body reports each configured destination's outcome
+separately, e.g. `{"ok":true,"results":[{"channel":"sheet","ok":false},{"channel":"webhook","ok":true}]}`
+— useful for confirming in the Network tab that a failure on one channel
+didn't take the other down with it.

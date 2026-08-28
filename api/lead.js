@@ -5,27 +5,32 @@
 // account credentials, so it calls out to this endpoint instead.
 //
 // Security note: the caller only ever sends a `client` key (e.g.
-// "goal-finance"), never a raw Google Sheet ID. The key -> Sheet ID mapping
-// lives server-side only, so a public caller can never point this endpoint
-// at an arbitrary sheet — only at one of the sheets we've explicitly
+// "goal-finance"), never a raw Google Sheet ID or webhook URL. Those
+// mappings live server-side only, so a public caller can never point this
+// endpoint at an arbitrary destination — only at ones we've explicitly
 // configured below.
 //
-// Required Vercel environment variables:
-//   GOOGLE_SERVICE_ACCOUNT_EMAIL  (shared with /api/submit-lead.js)
-//   GOOGLE_PRIVATE_KEY            (shared with /api/submit-lead.js)
-//   LEAD_SHEET_MAP                JSON string mapping client key -> Sheet ID, e.g.
-//                                 {"goal-finance":"1yQ_d0tVO6_..."}
+// A client can have either or both destinations configured, and the two
+// run as fully independent operations (Promise.allSettled) — neither is
+// gated on the other succeeding, so a Google Cloud outage can't silence a
+// GHL webhook forward, and vice versa. That independence is the entire
+// point of having more than one delivery path.
 //
-// Optional:
+// Environment variables:
+//   GOOGLE_SERVICE_ACCOUNT_EMAIL  required only if any client uses LEAD_SHEET_MAP
+//   GOOGLE_PRIVATE_KEY            required only if any client uses LEAD_SHEET_MAP
+//   LEAD_SHEET_MAP                JSON string mapping client key -> Google Sheet ID, e.g.
+//                                 {"goal-finance":"1yQ_d0tVO6_..."}
 //   LEAD_WEBHOOK_MAP              JSON string mapping client key -> an extra
-//                                 webhook URL to also forward the lead to
-//                                 (e.g. a GHL "Inbound Webhook" workflow
-//                                 trigger URL), e.g.
+//                                 webhook URL to forward the lead to (e.g. a
+//                                 GHL "Inbound Webhook" workflow trigger URL), e.g.
 //                                 {"goal-finance":"https://services.leadconnectorhq.com/hooks/..."}
-//                                 Sent server-to-server, so it's immune to
-//                                 the CORS issues a client-side fetch to a
-//                                 webhook endpoint would risk. A client with
-//                                 no entry here just skips this step.
+//                                 Sent server-to-server, so it's immune to the
+//                                 CORS issues a client-side fetch to a webhook
+//                                 endpoint would risk.
+//
+// A client key needs at least one of the two maps to have an entry; either
+// alone is enough to accept the request.
 
 import { JWT } from 'google-auth-library'
 
@@ -47,6 +52,62 @@ function setCors(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 }
 
+function parseJsonMap(envValue, envName) {
+  if (!envValue) return {}
+  try {
+    return JSON.parse(envValue)
+  } catch (e) {
+    console.error(`lead: ${envName} is not valid JSON`, e)
+    return {}
+  }
+}
+
+async function appendToSheet(sheetId, fields, submittedAt) {
+  const { GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY } = process.env
+  if (!GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_PRIVATE_KEY) {
+    throw new Error('Google service account env vars not set')
+  }
+
+  const jwt = new JWT({
+    email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    key: normalizePrivateKey(GOOGLE_PRIVATE_KEY),
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  })
+  const { token } = await jwt.getAccessToken()
+
+  // `fields` is a flat object of column values, in whatever order the
+  // caller wants them written — the caller owns its own column layout.
+  const row = [submittedAt, ...Object.values(fields)]
+
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(
+    SHEET_RANGE
+  )}:append?valueInputOption=USER_ENTERED`
+
+  const sheetsRes = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ values: [row] }),
+  })
+
+  if (!sheetsRes.ok) {
+    throw new Error(`Sheets API ${sheetsRes.status}: ${await sheetsRes.text()}`)
+  }
+}
+
+async function forwardToWebhook(webhookUrl, client, fields, submittedAt) {
+  const webhookRes = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client, submittedAt, ...fields }),
+  })
+  if (!webhookRes.ok) {
+    throw new Error(`Webhook ${webhookRes.status}: ${await webhookRes.text()}`)
+  }
+}
+
 export default async function handler(req, res) {
   setCors(res)
 
@@ -60,107 +121,42 @@ export default async function handler(req, res) {
     return
   }
 
-  const { GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, LEAD_SHEET_MAP, LEAD_WEBHOOK_MAP } = process.env
-  if (!GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_PRIVATE_KEY || !LEAD_SHEET_MAP) {
-    console.error('lead: missing env vars (service account or sheet map)')
-    res.status(500).json({ error: 'Server not configured' })
-    return
-  }
-
-  let sheetMap
-  try {
-    sheetMap = JSON.parse(LEAD_SHEET_MAP)
-  } catch (e) {
-    console.error('lead: LEAD_SHEET_MAP is not valid JSON', e)
-    res.status(500).json({ error: 'Server not configured' })
-    return
-  }
-
-  let webhookMap = {}
-  if (LEAD_WEBHOOK_MAP) {
-    try {
-      webhookMap = JSON.parse(LEAD_WEBHOOK_MAP)
-    } catch (e) {
-      // Non-fatal -- the sheet backup is the critical path. Just log it and
-      // skip the extra webhook forward for everyone until it's fixed.
-      console.error('lead: LEAD_WEBHOOK_MAP is not valid JSON', e)
-    }
-  }
-
   const body = req.body || {}
   const { client, fields } = body
-
-  const sheetId = sheetMap[client]
-  if (!sheetId) {
-    // Deliberately vague — don't reveal which client keys are valid.
-    res.status(400).json({ error: 'Unknown client' })
-    return
-  }
 
   if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
     res.status(400).json({ error: 'Missing fields' })
     return
   }
 
-  try {
-    const jwt = new JWT({
-      email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      key: normalizePrivateKey(GOOGLE_PRIVATE_KEY),
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    })
-    const { token } = await jwt.getAccessToken()
+  const sheetMap = parseJsonMap(process.env.LEAD_SHEET_MAP, 'LEAD_SHEET_MAP')
+  const webhookMap = parseJsonMap(process.env.LEAD_WEBHOOK_MAP, 'LEAD_WEBHOOK_MAP')
 
-    // `fields` is a flat object of column values, in whatever order the
-    // caller wants them written — the caller owns its own column layout.
-    const row = [body.submittedAt || new Date().toISOString(), ...Object.values(fields)]
+  const sheetId = sheetMap[client]
+  const webhookUrl = webhookMap[client]
 
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(
-      SHEET_RANGE
-    )}:append?valueInputOption=USER_ENTERED`
-
-    const sheetsRes = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ values: [row] }),
-    })
-
-    if (!sheetsRes.ok) {
-      const text = await sheetsRes.text()
-      console.error('lead: Sheets API error', sheetsRes.status, text)
-      res.status(502).json({ error: 'Sheets append failed' })
-      return
-    }
-
-    // Sheets is the critical path and has already succeeded at this point.
-    // The extra webhook forward (e.g. into a GHL workflow) is best-effort on
-    // top of that -- awaited so its own errors get logged, but never allowed
-    // to turn a successful sheet write into a failed response.
-    const webhookUrl = webhookMap[client]
-    if (webhookUrl) {
-      try {
-        const webhookRes = await fetch(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            client,
-            submittedAt: body.submittedAt || new Date().toISOString(),
-            ...fields,
-          }),
-        })
-        if (!webhookRes.ok) {
-          console.error('lead: webhook forward failed', client, webhookRes.status, await webhookRes.text())
-        }
-      } catch (webhookErr) {
-        console.error('lead: webhook forward error', client, webhookErr)
-      }
-    }
-
-    res.status(200).json({ ok: true })
-  } catch (err) {
-    console.error('lead: unexpected error', err)
-    res.status(500).json({ error: 'Unexpected error' })
+  if (!sheetId && !webhookUrl) {
+    // Deliberately vague — don't reveal which client keys are valid.
+    res.status(400).json({ error: 'Unknown client' })
+    return
   }
+
+  const submittedAt = body.submittedAt || new Date().toISOString()
+
+  const jobs = []
+  if (sheetId) jobs.push({ channel: 'sheet', promise: appendToSheet(sheetId, fields, submittedAt) })
+  if (webhookUrl) jobs.push({ channel: 'webhook', promise: forwardToWebhook(webhookUrl, client, fields, submittedAt) })
+
+  const settled = await Promise.allSettled(jobs.map((j) => j.promise))
+  const results = settled.map((r, i) => {
+    const channel = jobs[i].channel
+    if (r.status === 'rejected') {
+      console.error(`lead: ${channel} failed`, client, r.reason)
+      return { channel, ok: false }
+    }
+    return { channel, ok: true }
+  })
+
+  const anyOk = results.some((r) => r.ok)
+  res.status(anyOk ? 200 : 502).json({ ok: anyOk, results })
 }
